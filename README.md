@@ -56,11 +56,20 @@ streamlit run dashboard.py
 
 Open http://localhost:8501 — pick which runs to compare.
 
-## Notes
+## Miscellaneous
 
-- Config name is free-form — use whatever describes the wiring
-  (e.g. `direct`, `swx16`, `mixed`, `swx16_acsdis`).
-- The script bakes in the required env (`ONEAPI_DEVICE_SELECTOR=level_zero:*`,
-  `CCL_ATL_SHM=1`, `CCL_ATL_TRANSPORT=ofi`, `-j off`). Don't remove them.
-- Paths are overridable via `XPU_BENCH_BIN`, `XPU_BENCH_CONDA_LIB`,
-  `XPU_BENCH_SYCL_LIB`, `XPU_BENCH_NPROC` if your layout differs.
+### Run without P2P (staged / host-mediated)
+
+oneCCL auto-detects PCIe P2P capability. To force a staged run (GPU→host→GPU instead of direct GPU→GPU):
+
+```bash
+CCL_P2P_DISABLE=1 ./bench.sh <config-name>
+```
+
+Or disable topology recognition entirely:
+
+```bash
+CCL_TOPO_FABRIC_VERTEX_CONNECTION_CHECK=0 ./bench.sh <config-name>
+```
+
+This is useful for comparing P2P vs non-P2P performance, similar to the `p2p` vs `no_p2p` traces in CommBench.

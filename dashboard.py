@@ -129,16 +129,15 @@ for name in selected:
     table.append({"config": name, "peak busbw (GB/s)": round(peak_bus, 2)})
 st.dataframe(table, use_container_width=True, hide_index=True)
 
-# full sweep table
-st.subheader("Sweep Results")
-sweep_data = []
+# summary table: key sizes per config (like ZePeer format)
+st.subheader("Summary")
+summary = []
 for name in selected:
     data = seen[name]
-    for size in sorted(data):
+    sizes = sorted(data)
+    entry = {"config": name, "runs": len(data)}
+    for size in sizes:
         busbw = data[size][1]
-        sweep_data.append({
-            "Config": name,
-            "Size": human_size(size),
-            "busbw (GB/s)": round(busbw, 3),
-        })
-st.dataframe(sweep_data, use_container_width=True, hide_index=True)
+        entry[human_size(size)] = round(busbw, 3)
+    summary.append(entry)
+st.dataframe(summary, use_container_width=True, hide_index=True)

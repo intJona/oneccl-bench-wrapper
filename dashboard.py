@@ -8,7 +8,9 @@ from __future__ import annotations
 import csv
 import os
 import re
+from collections import defaultdict
 from pathlib import Path
+from statistics import median
 
 import plotly.graph_objects as go
 import streamlit as st
@@ -62,82 +64,153 @@ def parse_run(path: Path) -> dict:
     return rows
 
 
+def run_id(path: Path) -> str:
+    # filename: <timestamp>_<config>.csv
+    return path.stem
+
+
 def config_name(path: Path) -> str:
     # filename: <timestamp>_<config>.csv
     m = re.match(r"\d{8}-\d{6}_(.+)\.csv$", path.name)
     return m.group(1) if m else path.stem
 
 
-def load_runs() -> dict[str, dict]:
+@st.cache_data(show_spinner=False)
+def discover_runs() -> list[dict]:
+    """Discover all runs, grouped by config name."""
     if not RESULTS.exists():
-        return {}
-    runs = {}
+        return []
+    runs = []
     for p in sorted(RESULTS.glob("*.csv")):
         try:
-            runs[config_name(p)] = parse_run(p)
+            data = parse_run(p)
+            if not data:
+                continue
+            runs.append({
+                "id": run_id(p),
+                "config": config_name(p),
+                "data": data,
+                "file": p,
+            })
         except Exception:
             continue
     return runs
+
+
+def aggregate_runs(runs: list[dict]) -> dict[str, dict[float, list[float]]]:
+    """config -> {size: [busbw values]} -> median."""
+    grouped: dict[str, dict[float, list[float]]] = defaultdict(lambda: defaultdict(list))
+    for run in runs:
+        for size, (algbw, busbw) in run["data"].items():
+            grouped[run["config"]][size].append(busbw)
+    return {
+        config: {size: median(values) for size, values in sorted(by_size.items())}
+        for config, by_size in grouped.items()
+    }
+
+
+def build_figure(runs: list[dict], aggregated: dict[str, dict[float, list[float]]]) -> go.Figure:
+    figure = go.Figure()
+    # Unique style per individual run
+    run_styles = {
+        run["id"]: {
+            "color": PALETTE[index % len(PALETTE)],
+            "dash": DASHES[index % len(DASHES)],
+        }
+        for index, run in enumerate(runs)
+    }
+    # One style per config for median lines
+    config_keys = sorted(aggregated.keys())
+    config_styles = {
+        key: {
+            "color": PALETTE[index % len(PALETTE)],
+            "dash": DASHES[index % len(DASHES)],
+        }
+        for index, key in enumerate(config_keys)
+    }
+
+    # Thin dotted lines for individual runs
+    for run in runs:
+        sizes = sorted(run["data"])
+        bw = [run["data"][s][1] for s in sizes]
+        style = run_styles[run["id"]]
+        figure.add_trace(go.Scatter(
+            x=[human_size(s) for s in sizes],
+            y=bw,
+            mode="lines",
+            line={"color": style["color"], "width": 1, "dash": "dot"},
+            opacity=0.28,
+            hovertemplate=f"{run['config']} | {run['id']}<br>%{{x}}<br>%{{y:.2f}} GB/s<extra></extra>",
+            showlegend=False,
+        ))
+
+    # Solid bold lines for medians per config
+    for config, by_size in aggregated.items():
+        sizes = sorted(by_size)
+        bw = [by_size[s] for s in sizes]
+        style = config_styles[config]
+        figure.add_trace(go.Scatter(
+            x=[human_size(s) for s in sizes],
+            y=bw,
+            mode="lines+markers",
+            name=f"{config} median",
+            line={"color": style["color"], "width": 3, "dash": style["dash"]},
+            marker={"size": 8, "line": {"width": 1, "color": "white"}},
+            hovertemplate=f"{config} median<br>%{{x}}<br>%{{y:.2f}} GB/s<extra></extra>",
+        ))
+
+    figure.update_layout(
+        title="All-Reduce Bandwidth (busbw)",
+        xaxis_title="message size",
+        yaxis_title="busbw (GB/s)",
+        xaxis_type="category",
+        height=520,
+        legend=dict(orientation="h", y=1.12),
+        template="plotly_white",
+    )
+    return figure
 
 
 st.set_page_config(page_title="xpu-bench", layout="wide")
 st.title("XPU All-Reduce Bench")
 st.caption("Official oneCCL benchmark · 2x Intel Arc B70 · float32 allreduce")
 
-runs = load_runs()
-if not runs:
+all_runs = discover_runs()
+if not all_runs:
     st.info("No runs yet. Run `./bench.sh <config-name>` first.")
     st.stop()
 
-# newest-first, dedupe by config name (keep latest)
-seen: dict[str, dict] = {}
-for name, data in runs.items():
-    seen[name] = data  # sorted() => later (newer) overwrites
-names = list(seen.keys())
+configs = sorted({run["config"] for run in all_runs})
+selected_configs = st.sidebar.multiselect("Configurations", configs, default=configs)
+selected_runs = [run for run in all_runs if run["config"] in selected_configs]
+if not selected_runs:
+    st.warning("Select at least one configuration.")
+    st.stop()
 
-st.sidebar.header("Runs")
-selected = st.sidebar.multiselect("Configs to show", names, default=names)
+aggregated = aggregate_runs(selected_runs)
+st.caption(f"{len(selected_runs)} run(s) across {len(selected_configs)} configuration(s). Thin lines are individual runs; solid lines are per-size medians.")
 
-fig = go.Figure()
-for i, name in enumerate(selected):
-    data = seen[name]
-    sizes = sorted(data)
-    bw = [data[s][1] for s in sizes]  # busbw
-    fig.add_trace(go.Scatter(
-        x=[human_size(s) for s in sizes],
-        y=bw,
-        mode="lines+markers",
-        name=name,
-        line=dict(color=PALETTE[i % len(PALETTE)], dash=DASHES[i % len(DASHES)]),
-    ))
-
-fig.update_layout(
-    xaxis_title="message size",
-    yaxis_title="busbw (GB/s)",
-    xaxis_type="category",
-    height=520,
-    legend=dict(orientation="h", y=1.12),
-)
+fig = build_figure(selected_runs, aggregated)
 st.plotly_chart(fig, use_container_width=True)
 
 # peak table
 st.subheader("Peak bandwidth per run")
 table = []
-for name in selected:
-    data = seen[name]
-    peak_bus = max(v[1] for v in data.values())
-    table.append({"config": name, "peak busbw (GB/s)": round(peak_bus, 2)})
+for run in selected_runs:
+    peak_bus = max(v[1] for v in run["data"].values())
+    table.append({"config": run["config"], "id": run["id"], "peak busbw (GB/s)": round(peak_bus, 2)})
 st.dataframe(table, use_container_width=True, hide_index=True)
 
 # summary table: key sizes per config (like ZePeer format)
 st.subheader("Summary")
 summary = []
-for name in selected:
-    data = seen[name]
-    sizes = sorted(data)
-    entry = {"config": name, "runs": len(data)}
-    for size in sizes:
-        busbw = data[size][1]
-        entry[human_size(size)] = round(busbw, 3)
-    summary.append(entry)
+for config in selected_configs:
+    config_runs = [r for r in selected_runs if r["config"] == config]
+    # Use median values for summary
+    if config in aggregated:
+        sizes = sorted(aggregated[config])
+        entry = {"config": config, "runs": len(config_runs)}
+        for size in sizes:
+            entry[human_size(size)] = round(aggregated[config][size], 3)
+        summary.append(entry)
 st.dataframe(summary, use_container_width=True, hide_index=True)

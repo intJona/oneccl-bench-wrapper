@@ -14,7 +14,15 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RESULTS="$HERE/results"
+
+# Resolve results dir: $XPU_BENCH_RESULTS_DIR > .storage-config > ./results
+if [[ -n "${XPU_BENCH_RESULTS_DIR:-}" ]]; then
+    RESULTS="$XPU_BENCH_RESULTS_DIR"
+elif [[ -f "$HERE/.storage-config" ]]; then
+    RESULTS="$(sed 's/^[[:space:]]*//;s/[[:space:]]*$//' "$HERE/.storage-config")"
+else
+    RESULTS="$HERE/results"
+fi
 mkdir -p "$RESULTS"
 
 # --- layout (override via env if your paths differ) ---

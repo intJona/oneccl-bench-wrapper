@@ -6,6 +6,7 @@ Run:  streamlit run dashboard.py
 from __future__ import annotations
 
 import csv
+import os
 import re
 from pathlib import Path
 
@@ -13,7 +14,23 @@ import plotly.graph_objects as go
 import streamlit as st
 
 HERE = Path(__file__).resolve().parent
-RESULTS = HERE / "results"
+
+
+def resolve_results_root() -> Path:
+    """Results dir: $XPU_BENCH_RESULTS_DIR, then .storage-config, then ./results."""
+    env_override = os.environ.get("XPU_BENCH_RESULTS_DIR")
+    if env_override:
+        return Path(env_override).expanduser()
+    config_file = HERE / ".storage-config"
+    if config_file.exists():
+        for line in config_file.read_text().splitlines():
+            line = line.split("#", 1)[0].strip()
+            if line:
+                return Path(line).expanduser()
+    return HERE / "results"
+
+
+RESULTS = resolve_results_root()
 
 # Okabe-Ito colorblind-safe palette
 PALETTE = ["#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#000000"]
@@ -108,9 +125,8 @@ st.subheader("Peak bandwidth per run")
 table = []
 for name in selected:
     data = seen[name]
-    peak_alg = max(v[0] for v in data.values())
     peak_bus = max(v[1] for v in data.values())
-    table.append({"config": name, "peak algbw (GB/s)": round(peak_alg, 2), "peak busbw (GB/s)": round(peak_bus, 2)})
+    table.append({"config": name, "peak busbw (GB/s)": round(peak_bus, 2)})
 st.dataframe(table, use_container_width=True, hide_index=True)
 
 # full sweep table
@@ -119,11 +135,10 @@ sweep_data = []
 for name in selected:
     data = seen[name]
     for size in sorted(data):
-        algbw, busbw = data[size]
+        busbw = data[size][1]
         sweep_data.append({
             "Config": name,
             "Size (B)": size,
-            "algbw (GB/s)": round(algbw, 3),
             "busbw (GB/s)": round(busbw, 3),
         })
 st.dataframe(sweep_data, use_container_width=True, hide_index=True)

@@ -62,8 +62,9 @@ env -i HOME="$HOME" PATH="/usr/bin:/bin:/usr/local/bin" \
   LD_LIBRARY_PATH="$CONDA_LIB:$SYCL_LIB" \
   CCL_ATL_SHM=1 CCL_ATL_TRANSPORT=ofi \
   ONEAPI_DEVICE_SELECTOR="level_zero:*" \
+  CCL_P2P_DISABLE="${CCL_P2P_DISABLE:-0}" \
   /usr/bin/mpirun -n "$NPROC" \
-    -x LD_LIBRARY_PATH -x CCL_ATL_SHM -x CCL_ATL_TRANSPORT -x ONEAPI_DEVICE_SELECTOR \
+    -x LD_LIBRARY_PATH -x CCL_ATL_SHM -x CCL_ATL_TRANSPORT -x ONEAPI_DEVICE_SELECTOR -x CCL_P2P_DISABLE \
     "$BENCH_BIN" -l allreduce -d float32 "${SIZE_ARGS[@]}" -i 20 -w 5 -j off \
     -o "$OUT_CSV" >"$OUT_LOG" 2>&1
 rc=$?

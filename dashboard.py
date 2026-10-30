@@ -138,7 +138,7 @@ for name in selected:
         busbw = data[size][1]
         sweep_data.append({
             "Config": name,
-            "Size (B)": size,
+            "Size": human_size(size),
             "busbw (GB/s)": round(busbw, 3),
         })
 st.dataframe(sweep_data, use_container_width=True, hide_index=True)

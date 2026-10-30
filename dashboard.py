@@ -81,14 +81,11 @@ names = list(seen.keys())
 st.sidebar.header("Runs")
 selected = st.sidebar.multiselect("Configs to show", names, default=names)
 
-metric = st.radio("Metric", ["busbw (GB/s)"], horizontal=True)
-idx = 0  # always busbw (algbw is identical for 2-rank allreduce)
-
 fig = go.Figure()
 for i, name in enumerate(selected):
     data = seen[name]
     sizes = sorted(data)
-    bw = [data[s][idx] for s in sizes]
+    bw = [data[s][1] for s in sizes]  # busbw
     fig.add_trace(go.Scatter(
         x=[human_size(s) for s in sizes],
         y=bw,
@@ -99,7 +96,7 @@ for i, name in enumerate(selected):
 
 fig.update_layout(
     xaxis_title="message size",
-    yaxis_title=metric,
+    yaxis_title="busbw (GB/s)",
     xaxis_type="category",
     height=520,
     legend=dict(orientation="h", y=1.12),
@@ -115,3 +112,18 @@ for name in selected:
     peak_bus = max(v[1] for v in data.values())
     table.append({"config": name, "peak algbw (GB/s)": round(peak_alg, 2), "peak busbw (GB/s)": round(peak_bus, 2)})
 st.dataframe(table, use_container_width=True, hide_index=True)
+
+# full sweep table
+st.subheader("Sweep Results")
+sweep_data = []
+for name in selected:
+    data = seen[name]
+    for size in sorted(data):
+        algbw, busbw = data[size]
+        sweep_data.append({
+            "Config": name,
+            "Size (B)": size,
+            "algbw (GB/s)": round(algbw, 3),
+            "busbw (GB/s)": round(busbw, 3),
+        })
+st.dataframe(sweep_data, use_container_width=True, hide_index=True)

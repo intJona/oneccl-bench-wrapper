@@ -75,9 +75,8 @@ def config_name(path: Path) -> str:
     return m.group(1) if m else path.stem
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner="Scanning results (slow share)...")
 def discover_runs() -> list[dict]:
-    """Discover all runs, grouped by config name."""
     if not RESULTS.exists():
         return []
     runs = []
@@ -174,6 +173,9 @@ def build_figure(runs: list[dict], aggregated: dict[str, dict[float, list[float]
 st.set_page_config(page_title="xpu-bench", layout="wide")
 st.title("XPU All-Reduce Bench")
 st.caption("Official oneCCL benchmark · 2x Intel Arc B70 · float32 allreduce")
+
+if st.sidebar.button("Refresh data", help="Re-scan the results folder instead of using the cached scan"):
+    discover_runs.clear()
 
 all_runs = discover_runs()
 if not all_runs:

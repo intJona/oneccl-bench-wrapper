@@ -4,6 +4,7 @@
 # Usage:
 #   ./bench.sh <config-name>              full sweep (32B .. 256MB)
 #   ./bench.sh <config-name> <size-bytes> single size
+#   XPU_BENCH_DESCENDING=1 ./bench.sh <config-name>   sweep from largest to smallest
 #
 # Examples:
 #   ./bench.sh direct
@@ -44,12 +45,20 @@ TS="$(date +%Y%m%d-%H%M%S)"
 OUT_CSV="$RESULTS/${TS}_${CONFIG}.csv"
 OUT_LOG="$RESULTS/${TS}_${CONFIG}.log"
 
+# -t/-y take float32 element counts, not bytes: 134217728 elems = 512 MB
+MAX_ELEMS=134217728
+
 # size args: full sweep by default; single size if given (bytes -> float32 elems)
 if [[ -n "$SIZE" ]]; then
   SIZE_ARGS=(-y $(( SIZE / 4 )))
   DESC="single size ${SIZE} bytes"
+elif [[ "${XPU_BENCH_DESCENDING:-0}" == 1 ]]; then
+  ELEM_LIST=""
+  for ((e = MAX_ELEMS; e >= 8; e /= 2)); do ELEM_LIST+="${ELEM_LIST:+,}$e"; done
+  SIZE_ARGS=(-y "$ELEM_LIST")
+  DESC="sweep 512MB..32B, descending"
 else
-  SIZE_ARGS=(-f 8 -t 536870912)
+  SIZE_ARGS=(-f 8 -t "$MAX_ELEMS")
   DESC="sweep 32B..512MB"
 fi
 

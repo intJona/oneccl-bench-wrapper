@@ -58,6 +58,12 @@ Open http://localhost:8501 — pick which runs to compare.
 
 ## Miscellaneous
 
+### Sweep largest to smallest
+
+```bash
+XPU_BENCH_DESCENDING=1 ./bench.sh <config-name>
+```
+
 ### Run without P2P (staged / host-mediated)
 
 oneCCL auto-detects PCIe P2P capability. To force a staged run (GPU→host→GPU instead of direct GPU→GPU):

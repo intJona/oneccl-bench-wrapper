@@ -38,6 +38,31 @@ RESULTS = resolve_results_root()
 PALETTE = ["#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#000000"]
 DASHES = ["solid", "dash", "dot", "dashdot", "longdash", "longdashdot"]
 
+ALGO_SYMBOLS = {"LL256": "circle", "large": "diamond"}
+
+
+def read_algo(csv_path: Path) -> dict[int, str]:
+    """Per-size algorithm that bench.sh recorded next to the CSV; empty if the run wasn't traced."""
+    p = csv_path.with_name(csv_path.stem + ".algo.txt")
+    if not p.exists():
+        return {}
+    out = {}
+    for line in p.read_text().splitlines()[1:]:
+        size, _, label = line.partition(",")
+        if size.isdigit():
+            out[int(size)] = label
+    return out
+
+
+def config_algo(runs: list[dict], config: str) -> dict[int, str]:
+    """Algorithm per size across a config's traced runs; runs that disagree are joined with '/'."""
+    labels: dict[int, set[str]] = defaultdict(set)
+    for run in runs:
+        if run["config"] == config:
+            for size, label in run["algo"].items():
+                labels[size].add(label)
+    return {size: "/".join(sorted(v)) for size, v in labels.items()}
+
 
 def human_size(n: float) -> str:
     for unit in ("B", "KB", "MB", "GB"):
@@ -89,6 +114,7 @@ def discover_runs() -> list[dict]:
                 "id": run_id(p),
                 "config": config_name(p),
                 "data": data,
+                "algo": read_algo(p),
                 "file": p,
             })
         except Exception:
@@ -148,14 +174,17 @@ def build_figure(runs: list[dict], aggregated: dict[str, dict[float, list[float]
         sizes = sorted(by_size)
         bw = [by_size[s] for s in sizes]
         style = config_styles[config]
+        algo = config_algo(runs, config)
         figure.add_trace(go.Scatter(
             x=[human_size(s) for s in sizes],
             y=bw,
             mode="lines+markers",
             name=f"{config} median",
             line={"color": style["color"], "width": 3, "dash": style["dash"]},
-            marker={"size": 8, "line": {"width": 1, "color": "white"}},
-            hovertemplate=f"{config} median<br>%{{x}}<br>%{{y:.2f}} GB/s<extra></extra>",
+            marker={"size": 9, "line": {"width": 1, "color": "white"},
+                    "symbol": [ALGO_SYMBOLS.get(algo[s], "square") if s in algo else "circle-open" for s in sizes]},
+            customdata=[algo.get(s, "not traced") for s in sizes],
+            hovertemplate=f"{config} median<br>%{{x}}<br>%{{y:.2f}} GB/s<br>%{{customdata}}<extra></extra>",
         ))
 
     figure.update_layout(
@@ -191,9 +220,32 @@ if not selected_runs:
 
 aggregated = aggregate_runs(selected_runs)
 st.caption(f"{len(selected_runs)} run(s) across {len(selected_configs)} configuration(s). Thin lines are individual runs; solid lines are per-size medians.")
+st.caption("● LL256 · ◆ large kernel · ○ not traced. Algorithm is recorded per run by bench.sh "
+           "(separate debug-logged pass over the same sizes).")
 
 fig = build_figure(selected_runs, aggregated)
 st.plotly_chart(fig, use_container_width=True)
+
+# where the algorithm changes, per config
+switch_rows = []
+for config in selected_configs:
+    algo = config_algo(selected_runs, config)
+    if not algo:
+        continue
+    changes, prev = [], None
+    for size in sorted(algo):
+        if algo[size] != prev:
+            changes.append(f"{human_size(size)}: {algo[size]}")
+            prev = algo[size]
+    config_runs = [r for r in selected_runs if r["config"] == config]
+    switch_rows.append({
+        "config": config,
+        "traced runs": f"{sum(1 for r in config_runs if r['algo'])}/{len(config_runs)}",
+        "algorithm from size": " → ".join(changes),
+    })
+if switch_rows:
+    st.subheader("Algorithm switch")
+    st.dataframe(switch_rows, use_container_width=True, hide_index=True)
 
 # peak table
 st.subheader("Peak bandwidth per run")
